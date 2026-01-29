@@ -1,0 +1,56 @@
+CREATE OR REPLACE PACKAGE PKG_GABINET AS
+    
+    TYPE t_lek_rekord IS RECORD (
+        nazwa_leku VARCHAR2(100),
+        dawkowanie VARCHAR2(100)
+    );
+    
+    TYPE t_lista_lekow IS TABLE OF t_lek_rekord;
+
+    PROCEDURE zakoncz_wizyte(
+        p_wizyta_id NUMBER, 
+        p_notatka CLOB, 
+        p_leki t_lista_lekow DEFAULT NULL,
+	p_koszt NUMBER DEFAULT 200
+    );
+END PKG_GABINET;
+/
+
+CREATE OR REPLACE PACKAGE BODY PKG_GABINET AS
+
+    PROCEDURE zakoncz_wizyte(
+        p_wizyta_id NUMBER, 
+        p_notatka CLOB, 
+        p_leki t_lista_lekow DEFAULT NULL,
+	p_koszt NUMBER DEFAULT 200
+    ) IS
+        v_recepta_id NUMBER;
+    BEGIN
+        UPDATE WIZYTY 
+        SET status = 'ZAKONCZONA', 
+            notatka_lekarska = p_notatka,
+            koszt = p_koszt
+        WHERE wizyta_id = p_wizyta_id;
+        
+        IF SQL%ROWCOUNT = 0 THEN
+            RAISE_APPLICATION_ERROR(-20005, 'Nie znaleziono wizyty o ID: ' || p_wizyta_id);
+        END IF;
+		
+        IF p_leki IS NOT NULL AND p_leki.COUNT > 0 THEN
+            -- Wstawienie nagłówka recepty
+            INSERT INTO RECEPTY (wizyta_id, data_wystawienia, kod_dostepu)
+            VALUES (p_wizyta_id, SYSDATE, LPAD(TRUNC(DBMS_RANDOM.VALUE(0, 9999)), 4, '0')) 
+            RETURNING recepta_id INTO v_recepta_id;
+
+            -- Wstawienie pozycji recepty z kolekcji
+            FOR i IN 1..p_leki.COUNT LOOP
+                INSERT INTO RECEPTY_POZYCJE (recepta_id, nazwa_leku, dawkowanie)
+                VALUES (v_recepta_id, p_leki(i).nazwa_leku, p_leki(i).dawkowanie);
+            END LOOP;
+        END IF;
+        
+        PKG_UTILS.loguj_zdarzenie('ZAKONCZ_WIZYTE', 'Zakończono wizytę nr: ' || p_wizyta_id);
+    END;
+
+END PKG_GABINET;
+/

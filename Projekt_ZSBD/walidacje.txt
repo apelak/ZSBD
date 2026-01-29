@@ -1,0 +1,45 @@
+CREATE OR REPLACE PACKAGE PKG_UTILS AS
+    FUNCTION czy_pesel_poprawny(p_pesel VARCHAR2) RETURN BOOLEAN;
+    PROCEDURE loguj_zdarzenie(p_operacja VARCHAR2, p_szczegoly VARCHAR2);
+    FUNCTION pesel_to_date(p_pesel VARCHAR2) RETURN DATE;
+END PKG_UTILS;
+/
+
+CREATE OR REPLACE PACKAGE BODY PKG_UTILS AS
+    PROCEDURE loguj_zdarzenie(p_operacja VARCHAR2, p_szczegoly VARCHAR2) IS
+        PRAGMA AUTONOMOUS_TRANSACTION;
+    BEGIN
+        INSERT INTO LOGI_AUDYTOWE (uzytkownik, operacja, szczegoly)
+        VALUES (USER, p_operacja, p_szczegoly);
+        COMMIT;
+    END;
+
+    FUNCTION czy_pesel_poprawny(p_pesel VARCHAR2) RETURN BOOLEAN IS
+        v_sum NUMBER := 0;
+        v_wagi VARCHAR2(10) := '1379137913';
+        v_kontrolna NUMBER;
+    BEGIN
+        IF LENGTH(p_pesel) <> 11 OR NOT REGEXP_LIKE(p_pesel, '^\d+$') THEN RETURN FALSE; END IF;
+        FOR i IN 1..10 LOOP
+            v_sum := v_sum + TO_NUMBER(SUBSTR(p_pesel, i, 1)) * TO_NUMBER(SUBSTR(v_wagi, i, 1));
+        END LOOP;
+        v_kontrolna := MOD(10 - MOD(v_sum, 10), 10);
+        RETURN v_kontrolna = TO_NUMBER(SUBSTR(p_pesel, 11, 1));
+    EXCEPTION WHEN OTHERS THEN RETURN FALSE;
+    END;
+
+    FUNCTION pesel_to_date(p_pesel VARCHAR2) RETURN DATE IS
+        v_year NUMBER := TO_NUMBER(SUBSTR(p_pesel, 1, 2));
+        v_month NUMBER := TO_NUMBER(SUBSTR(p_pesel, 3, 2));
+        v_day NUMBER := TO_NUMBER(SUBSTR(p_pesel, 5, 2));
+    BEGIN
+        IF v_month > 80 THEN v_year := 1800 + v_year; v_month := v_month - 80;
+        ELSIF v_month > 60 THEN v_year := 2200 + v_year; v_month := v_month - 60;
+        ELSIF v_month > 40 THEN v_year := 2100 + v_year; v_month := v_month - 40;
+        ELSIF v_month > 20 THEN v_year := 2000 + v_year; v_month := v_month - 20;
+        ELSE v_year := 1900 + v_year; END IF;
+        RETURN TO_DATE(v_year || '-' || LPAD(v_month,2,'0') || '-' || LPAD(v_day,2,'0'), 'YYYY-MM-DD');
+    EXCEPTION WHEN OTHERS THEN RETURN NULL;
+    END;
+END PKG_UTILS;
+/

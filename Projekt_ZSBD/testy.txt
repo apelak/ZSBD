@@ -1,0 +1,101 @@
+--Dodanie lekarza i grafiku
+INSERT INTO LEKARZE (imie, nazwisko, specjalizacja, nr_pwz, stawka_bazowa)
+VALUES ('Jan', 'Nowak', 'Chirurg', '1234567', 200);
+
+-- Lekarz przyjmuje w Poniedziałki od 8 do 16
+INSERT INTO GRAFIK_PRACY (lekarz_id, dzien_tygodnia, godzina_od, godzina_do)
+VALUES ((SELECT MAX(lekarz_id) FROM LEKARZE), 1, 8, 16);
+
+COMMIT;
+
+-- rejestracja pacjenta
+BEGIN
+    PKG_REJESTRACJA.dodaj_pacjenta('Jan', 'Kowalski', '90010101116', '500600700', 'jan@wp.pl');
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Pacjent dodany pomyślnie!');
+EXCEPTION WHEN OTHERS THEN 
+    DBMS_OUTPUT.PUT_LINE('Błąd: ' || SQLERRM);
+END;
+
+##Pacjent dodany pomyślnie!
+
+--umawianie wizyty - oczekiwany błąd - lekarz nie pracuje w niedzielę
+DECLARE
+    v_lekarz NUMBER;
+BEGIN
+    SELECT MAX(lekarz_id) INTO v_lekarz FROM LEKARZE;
+    DBMS_OUTPUT.PUT_LINE('--- Próba: Niedziela ---');
+    PKG_REJESTRACJA.umow_wizyte('90010101116', v_lekarz, TO_DATE('2026-02-01 10:00', 'YYYY-MM-DD HH24:MI')); -- 1.02.2026 to niedziela
+EXCEPTION 
+    WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('-> Oczekiwany błąd: ' || SQLERRM);
+END;
+/
+
+
+##--- Próba: Niedziela ---
+##-> Oczekiwany błąd: ORA-01403: no data found
+
+-- umawianie wizyty - lekarz pracuje w dany dzień
+DECLARE
+    v_lekarz NUMBER;
+BEGIN
+    SELECT MAX(lekarz_id) INTO v_lekarz FROM LEKARZE;
+
+    DBMS_OUTPUT.PUT_LINE('--- Próba: Poniedziałek (W grafiku) ---');
+    PKG_REJESTRACJA.umow_wizyte('90010101116', v_lekarz, TO_DATE('2026-02-02 10:00', 'YYYY-MM-DD HH24:MI'));
+    DBMS_OUTPUT.PUT_LINE('-> Sukces!');
+END;
+/
+
+##--- Próba: Poniedziałek (W grafiku) ---
+##-> Sukces!
+
+
+--zakończenie wizyty z wypisaniem recepty
+DECLARE
+    v_wizyta NUMBER;
+    v_leki PKG_GABINET.t_lista_lekow := PKG_GABINET.t_lista_lekow(); 
+BEGIN
+    SELECT MAX(wizyta_id) INTO v_wizyta FROM WIZYTY WHERE status = 'UMOWIONA';
+    
+    IF v_wizyta IS NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Błąd: Brak wizyt o statusie UMOWIONA do zakończenia!');
+        RETURN;
+    END IF;
+
+    v_leki.EXTEND(2);
+    
+    v_leki(1).nazwa_leku := 'Apap';
+    v_leki(1).dawkowanie := '1x dziennie';
+    
+    v_leki(2).nazwa_leku := 'Witamina C';
+    v_leki(2).dawkowanie := '2x dziennie';
+    
+    PKG_GABINET.zakoncz_wizyte(v_wizyta, 'Pacjent zdrowy, zalecono suplementację.', v_leki,350);
+    
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Wizyta nr ' || v_wizyta || ' została zakończona pomyślnie.');
+END;
+
+##Wizyta nr 1 została zakończona pomyślnie.
+
+SELECT * FROM RECEPTY_POZYCJE;
+
+##1	1	Apap	1x dziennie
+##2	1	Witamina C	2x dziennie
+
+SELECT * FROM LOGI_AUDYTOWE ORDER BY log_id DESC;
+
+##3	PELAKA	2026-01-29 15:54:19.359	ZAKONCZ_WIZYTE	Zakończono wizytę nr: 1
+##2	PELAKA	2026-01-29 15:48:02.736	UMOW_WIZYTE	Pacjent: 90010101116 Lekarz: 2
+##1	PELAKA	2026-01-29 15:41:56.051	DODAJ_PACJENTA	Dodano pacjenta: 90010101116
+
+
+--Wyszukiwanie pacjentów
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('--- Szukanie pacjenta ---');
+    PKG_REJESTRACJA.szukaj_pacjentow(p_nazwisko => 'Kow');
+END;
+
+##--- Szukanie pacjenta ---
+##Pacjent: Jan Kowalski (PESEL: 90010101116)

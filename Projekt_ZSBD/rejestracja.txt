@@ -1,0 +1,77 @@
+CREATE OR REPLACE PACKAGE PKG_REJESTRACJA AS
+    PROCEDURE dodaj_pacjenta(p_imie VARCHAR2, p_nazwisko VARCHAR2, p_pesel VARCHAR2, p_tel VARCHAR2, p_email VARCHAR2);
+    
+    PROCEDURE umow_wizyte(p_pesel VARCHAR2, p_lekarz_id NUMBER, p_data DATE);
+    
+    PROCEDURE szukaj_pacjentow(p_nazwisko VARCHAR2 DEFAULT NULL, p_pesel VARCHAR2 DEFAULT NULL);
+END PKG_REJESTRACJA;
+/
+
+CCREATE OR REPLACE PACKAGE BODY PKG_REJESTRACJA AS
+
+    PROCEDURE dodaj_pacjenta(
+        p_imie VARCHAR2, 
+        p_nazwisko VARCHAR2, 
+        p_pesel VARCHAR2, 
+        p_tel VARCHAR2, 
+        p_email VARCHAR2
+    ) IS
+    BEGIN
+        -- Walidacja PESEL
+        IF NOT PKG_UTILS.czy_pesel_poprawny(p_pesel) THEN
+            RAISE_APPLICATION_ERROR(-20001, 'Nieprawidłowy numer PESEL.');
+        END IF;
+
+        INSERT INTO PACJENCI (imie, nazwisko, pesel, telefon, email, data_urodzenia)
+        VALUES (p_imie, p_nazwisko, p_pesel, p_tel, p_email, PKG_UTILS.pesel_to_date(p_pesel));
+                
+        PKG_UTILS.loguj_zdarzenie('DODAJ_PACJENTA', 'Dodano pacjenta: ' || p_pesel);
+    END;
+
+    PROCEDURE umow_wizyte(
+        p_pesel VARCHAR2, 
+        p_lekarz_id NUMBER, 
+        p_data DATE
+    ) IS
+        v_pacjent_id NUMBER;
+        v_dzien_tyg NUMBER := 1 + TRUNC(p_data) - TRUNC(p_data, 'IW'); 
+        v_godzina NUMBER := TO_NUMBER(TO_CHAR(p_data, 'HH24'));
+        v_czy_pracuje NUMBER;
+    BEGIN
+        -- Pobranie ID pacjenta
+        SELECT pacjent_id INTO v_pacjent_id FROM PACJENCI WHERE pesel = p_pesel;
+
+        -- Sprawdzenie grafiku lekarza
+        SELECT COUNT(*) INTO v_czy_pracuje 
+        FROM GRAFIK_PRACY
+        WHERE lekarz_id = p_lekarz_id 
+          AND dzien_tygodnia = v_dzien_tyg
+          AND v_godzina >= godzina_od 
+          AND v_godzina < godzina_do;
+
+        IF v_czy_pracuje = 0 THEN
+             RAISE_APPLICATION_ERROR(-20003, 'Lekarz nie przyjmuje w tym terminie (Dzień: '||v_dzien_tyg||', Godz: '||v_godzina||').');
+        END IF;
+
+        INSERT INTO WIZYTY (pacjent_id, lekarz_id, data_wizyty, status)
+        VALUES (v_pacjent_id, p_lekarz_id, p_data, 'UMOWIONA');
+        
+        PKG_UTILS.loguj_zdarzenie('UMOW_WIZYTE', 'Pacjent: ' || p_pesel || ' Lekarz: ' || p_lekarz_id);
+    END;
+
+    PROCEDURE szukaj_pacjentow(
+        p_nazwisko VARCHAR2 DEFAULT NULL, 
+        p_pesel VARCHAR2 DEFAULT NULL
+    ) IS
+    BEGIN
+        FOR r IN (
+            SELECT imie, nazwisko, pesel 
+            FROM PACJENCI 
+            WHERE (p_nazwisko IS NULL OR nazwisko LIKE p_nazwisko || '%')
+              AND (p_pesel IS NULL OR pesel = p_pesel)
+        ) LOOP
+            DBMS_OUTPUT.PUT_LINE('Pacjent: ' || r.imie || ' ' || r.nazwisko || ' (PESEL: ' || r.pesel || ')');
+        END LOOP;
+    END;
+
+END PKG_REJESTRACJA;

@@ -1,0 +1,22 @@
+--archiwizacja usuniętych wizyt
+CREATE OR REPLACE TRIGGER trg_arch_wizyty
+BEFORE DELETE ON WIZYTY
+FOR EACH ROW
+BEGIN
+    INSERT INTO ARCHIWUM_WIZYT (wizyta_id, data_archiwizacji, powod, stare_dane)
+    VALUES (:OLD.wizyta_id, SYSDATE, 'Usunięcie rekordu', 
+            'PacjentID: ' || :OLD.pacjent_id || ', Data: ' || TO_CHAR(:OLD.data_wizyty, 'YYYY-MM-DD'));
+END;
+/
+
+-- blokada zmiany PESELU na niepoprawny przy UPDATE
+CREATE OR REPLACE TRIGGER trg_walidacja_pesel
+BEFORE UPDATE OF pesel ON PACJENCI
+FOR EACH ROW
+BEGIN
+    IF NOT PKG_UTILS.czy_pesel_poprawny(:NEW.pesel) THEN
+        RAISE_APPLICATION_ERROR(-20006, 'Nowy PESEL jest niepoprawny!');
+    END IF;
+END;
+/
+
